@@ -1,0 +1,15 @@
+{
+  "name": "c42-angular-admin",
+  "version": "0.0.1",
+  "description": "",
+  "main": "admin.js",
+  "dependencies": {
+    "ng-admin": "^0.9.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Jasper",
+  "license": "MIT"
+}
