@@ -11,7 +11,6 @@ var USERID = ''; // Required for getEventIconUrl
 var SERVICEID = '';
 
 
-
 /**
  * NG-ADMIN CUSTOMIZATIONS
 */
@@ -22,7 +21,7 @@ var DEFAULTSEARCHTERM = "test";
 
 // C42 expects URL's to always have a leading slash
 var urlRewite = function (entityName, identifierValue, suffix) {
-    return '/' + entityName + '/' + (identifierValue?identifierValue:"") + (suffix?suffix+"/":"");
+    return '/' + entityName + '/' + (identifierValue?identifierValue+"/":"") + (suffix?suffix+"/":"");
 };
 
 // C42 expects updates to be done with the patch Method
