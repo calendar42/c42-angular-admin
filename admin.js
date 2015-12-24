@@ -11,9 +11,14 @@ var USERID = ''; // Required for getEventIconUrl
 var SERVICEID = '';
 
 
+
 /**
  * NG-ADMIN CUSTOMIZATIONS
 */
+
+// C42 expects that /search always sends a search term in 1, otherwise it throws a 400
+// TODO: Just handle the 400 correctly
+var DEFAULTSEARCHTERM = "test";
 
 // C42 expects URL's to always have a leading slash
 var urlRewite = function (entityName, identifierValue) {
@@ -143,6 +148,19 @@ myApp.config(['RestangularProvider', function (RestangularProvider) {
 myApp.config(['NgAdminConfigurationProvider', function (nga) {
     var admin = nga.application('C42 Admin').baseApiUrl(URL);
 
+    /*
+    
+        CUSTOM FIELDS
+
+    */
+
+    C42EventAvatarField = nga.field('_local_avatar', 'template')
+        .label('')
+        .map(function createUrl(value, entry) {
+            return getEventIconUrl(entry.id);
+        })
+        .template('<img class="img-rounded" src="{{ entry.values._local_avatar }}" width="24" height="24" style="margin-top:-2px" />');
+
     /* 
 
         ENTITIES
@@ -154,11 +172,22 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
     var event = nga.entity('events').url(function(entityName, viewType, identifierValue, identifierName) {
         return urlRewite(entityName, identifierValue);
     });
+    var eventSearchResult = nga.entity('event_search_results').url(function(entityName, viewType, identifierValue, identifierName) {
+        return urlRewite('search/events', identifierValue);
+    });
     var eventSubscription = nga.entity('event-subscriptions').url(function(entityName, viewType, identifierValue, identifierName) {
         return urlRewite(entityName, identifierValue);
     });
+
+    // customizations
+    calendar.updateMethod(updateMethod);
+    event.updateMethod(updateMethod);
+    eventSearchResult.identifier(nga.field('object.id'));
+    eventSubscription.updateMethod(updateMethod);
+    // add entitities
     admin.addEntity(calendar);
     admin.addEntity(event);
+    admin.addEntity(eventSearchResult);
     admin.addEntity(eventSubscription);
 
     /* 
@@ -168,14 +197,46 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
     */
     admin.menu(nga.menu()
         .addChild(nga.menu(event)
+            .title('Tasks, Time Blocks & Events')
             .icon('<span class="fa fa-clock-o fa-fw"></span>')
-            // .addChild(nga.menu()
-            //     .title('This week')
-            //     .link('/events/list?search=%7B%22from_time%22:%222015-11-30T23:00:00.000Z%22,%22to_time%22:%222015-12-24T23:00:00.000Z%22%7D&sortField=events_ListView.start&sortDir=DESC')
-            //     .icon('<span class="fa fa-user-times fa-fw"></span>')) // no active() function => will never appear active
+            .active(function () {return true;})
+            .addChild(nga.menu()
+                .title('Browse')
+                .link('/events/list') // ?search=%7B%22from_time%22:%222015-11-30T23:00:00.000Z%22,%22to_time%22:%222015-12-24T23:00:00.000Z%22%7D&sortField=events_ListView.start&sortDir=DESC
+            )
+            .addChild(nga.menu()
+                .title('Smart Search')
+                .icon('<span class="fa fa-search fa-fw"></span>')
+                .link('event_search_results/list?search={"q":"'+DEFAULTSEARCHTERM+'"}') // ?search=%7B%22from_time%22:%222015-11-30T23:00:00.000Z%22,%22to_time%22:%222015-12-24T23:00:00.000Z%22%7D&sortField=events_ListView.start&sortDir=DESC
+            )
         )
         .addChild(nga.menu(calendar)
-            .icon('<span class="fa fa-calendar-o fa-fw"></span>'))
+            .icon('<span class="fa fa-calendar-o fa-fw"></span>')
+        )
+    );
+
+    /*
+        
+        DASHBOARD
+
+    */
+    admin.dashboard(nga.dashboard()
+        .addCollection(nga.collection(event)
+            .name('events')
+            .title('Upcoming Tasks')
+            .perPage(10) // limit the panel to the 5 latest posts
+            .fields([
+                C42EventAvatarField,
+                nga.field('title').isDetailLink(true),
+                nga.field('due', 'datetime'),
+            ])
+            .permanentFilters({
+                'include_removed_events':false,
+                'event_type': 'todo'
+            })
+            .sortField('due')
+            .sortDir('ASC')
+        )
     );
 
     /*
@@ -183,7 +244,6 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
         CALENDARS VIEWS
 
     */
-    calendar.updateMethod(updateMethod);
     calendar.listView().fields([
         nga.field('color')
             .label('')
@@ -270,16 +330,9 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
 
         EVENT VIEWS
 
-     */
-
-    event.updateMethod(updateMethod);
+     */    
     event.listView().fields([
-        nga.field('_local_avatar', 'template')
-                .label('')
-                .map(function capitalize(value, entry) {
-                    return getEventIconUrl(entry.id);
-                })
-                .template('<img class="img-rounded" src="{{ entry.values._local_avatar }}" width="24" height="24" style="margin-top:-2px" />'),
+        C42EventAvatarField,
         nga.field('title').isDetailLink(true),
         nga.field('event_type'),
         nga.field('sync_token'),
@@ -325,12 +378,6 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
             .cssClasses("pull-left")
             .label('To')
             .attributes({'placeholder': 'Filter by date'}),
-        // nga.field('q')
-        //     .pinned(true)
-        //     .label('')
-        //     .template('<div class="input-group"><input type="text" ng-model="value" placeholder="Search" class="form-control"></input><span class="input-group-addon"><i class="glyphicon glyphicon-search"></i></span></div>')
-        //     .transform(function (v){return v && v.toUpperCase();}) // transform the entered value before sending it as a query parameter
-        //     .map(function (v){return v && v.toLowerCase();}) // map the query parameter to a displayed value in the filter form
     ]);
 
     event.creationView()
@@ -368,6 +415,7 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
             nga.field('description', 'wysiwyg'),
             nga.field('start', 'datetime'),
             nga.field('end', 'datetime'),
+            nga.field('due', 'datetime'),
             nga.field('start_location.text').label('Text'),
             nga.field('start_location.address').label('Address'),
             nga.field('start_location.city').label('City'),
@@ -378,6 +426,47 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
         .title('Edit: {{ entry.values.title }}')
         .fields(event.creationView().fields());
 
+
+    /*
+
+        EVENT SEARH VIEW
+
+     */    
+
+    eventSearchResult.listView()
+        .fields([
+            nga.field('')
+                .label('Title')
+                .template('<div>{{entry.values["object.title"]}}</div> <ma-edit-button entry="entry" entity-name="events" size="xs"></ma-edit-button>'),
+            nga.field('matches', 'embedded_list')
+                .label('')
+                .targetFields([
+                    nga.field('key')
+                        .label(''),
+                    nga.field('values')
+                        .label('matches')
+                ]),
+            nga.field('matched_related_objects', 'embedded_list')
+                .label('Matched subscriptions')
+                .targetFields([
+                    nga.field('matches', 'embedded_list')
+                        .label('')
+                        .targetFields([
+                            nga.field('key')
+                                .label(''),
+                            nga.field('values')
+                                .label('matches')
+                        ]),
+                ]),
+        ])        
+        .filters([
+            nga.field('q')
+            .pinned(true)
+            .defaultValue('')
+            .label('')
+            .template('<div class="input-group"><input type="text" ng-model="value" placeholder="Search" class="form-control"></input><span class="input-group-addon"><i class="glyphicon glyphicon-search"></i></span></div>')
+        ])
+        .perPage(10);
 
 
     // attach the admin application to the DOM and execute it
