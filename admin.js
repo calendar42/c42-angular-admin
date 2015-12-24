@@ -21,8 +21,8 @@ var SERVICEID = '';
 var DEFAULTSEARCHTERM = "test";
 
 // C42 expects URL's to always have a leading slash
-var urlRewite = function (entityName, identifierValue) {
-    return '/' + entityName + '/' + (identifierValue?identifierValue:"");
+var urlRewite = function (entityName, identifierValue, suffix) {
+    return '/' + entityName + '/' + (identifierValue?identifierValue:"") + (suffix?suffix+"/":"");
 };
 
 // C42 expects updates to be done with the patch Method
@@ -109,7 +109,7 @@ myApp.config(['RestangularProvider', function (RestangularProvider) {
                 pretend that they are singular filters (e.g. `id` instead of `ids`)
                 This
             */
-            var arrayFilterKeys = ['event_id', 'id', 'service_id', 'calendar_id', 'geo_circle', 'event_type'];
+            var arrayFilterKeys = ['event_id', 'id', 'service_id', 'calendar_id', 'geo_circle', 'event_type', 'user_id'];
             for (var key in params._filters) {
                 if (params._filters.hasOwnProperty(key)) {
                     if (arrayFilterKeys.indexOf(key) > -1 && !!params._filters[key]) {  // in arrayFilterKeys & defined
@@ -154,7 +154,7 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
 
     */
 
-    C42EventAvatarField = nga.field('_local_avatar', 'template')
+    var C42EventAvatarField = nga.field('_local_avatar', 'template')
         .label('')
         .map(function createUrl(value, entry) {
             return getEventIconUrl(entry.id);
@@ -166,6 +166,9 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
         ENTITIES
 
     */
+    // var service = nga.entity('services').url(function(entityName, viewType, identifierValue, identifierName) {
+    //     return urlRewite(entityName, identifierValue, "public");
+    // });
     var calendar = nga.entity('calendars').url(function(entityName, viewType, identifierValue, identifierName) {
         return urlRewite(entityName, identifierValue);
     });
@@ -178,6 +181,9 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
     var eventSubscription = nga.entity('event-subscriptions').url(function(entityName, viewType, identifierValue, identifierName) {
         return urlRewite(entityName, identifierValue);
     });
+    var userAttendances = nga.entity('user-attendances').url(function(entityName, viewType, identifierValue, identifierName) {
+        return urlRewite(entityName, identifierValue);
+    });
 
     // customizations
     calendar.updateMethod(updateMethod);
@@ -185,10 +191,12 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
     eventSearchResult.identifier(nga.field('object.id'));
     eventSubscription.updateMethod(updateMethod);
     // add entitities
+    // admin.addEntity(service);
     admin.addEntity(calendar);
     admin.addEntity(event);
     admin.addEntity(eventSearchResult);
     admin.addEntity(eventSubscription);
+    admin.addEntity(userAttendances);
 
     /* 
 
@@ -213,6 +221,9 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
         .addChild(nga.menu(calendar)
             .icon('<span class="fa fa-calendar-o fa-fw"></span>')
         )
+        // .addChild(nga.menu(service)
+        //     .icon('<span class="fa fa-calendar-o fa-fw"></span>')
+        // )
     );
 
     /*
@@ -351,7 +362,9 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
     .permanentFilters({'include_removed_events':false})
     .perPage(10)
     .filters([
-        nga.field('calendar_id'),
+        nga.field('calendar_id', 'reference')
+                .targetEntity(calendar)
+                .targetField(nga.field('name')),
         nga.field('service_id'),
         nga.field('geo_circle')
             .attributes({'placeholder': '52.009507,4.360515,1000'}),
@@ -365,9 +378,6 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
                 { label: 'Depart From Trip', value: 'depart_from' },
                 { label: 'Route', value: 'route' }
             ]),
-        /*
-            After deployment of the new code, this can work
-        */
         nga.field('from_time', 'datetime')
             .pinned(true)
             .cssClasses("pull-left")
@@ -377,7 +387,7 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
             .pinned(true)
             .cssClasses("pull-left")
             .label('To')
-            .attributes({'placeholder': 'Filter by date'}),
+            .attributes({'placeholder': 'Filter by date'})
     ]);
 
     event.creationView()
@@ -401,11 +411,14 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
                 nga.field('is_invitation', 'boolean')
                     .label('Invited'),
                 nga.field('rsvp_status')
-                    .label('RSVP')
+                    .label('RSVP'),
+                nga.field('', 'template')
+                    .label('')
+                    .template('<span class="pull-right"><ma-filtered-list-button entity-name="user-attendances" label="Show availability" filter="{ user_id: entry.values[\'subscriber.id\'] }" size="xs"></ma-filtered-list-button></span>')
             ]),
             nga.field('', 'template')
                 .label('')
-                .template('<ma-create-button ng-show="entry.values.id" label="Invite" entity-name="event-subscriptions" default-values="{ event_id: entry.values.id }" size="xs"></ma-create-button>'),
+                .template('<ma-create-button ng-show="entry.values.id" label="Invite" entity-name="event-subscriptions" default-values="{ event_id: entry.values.id }" size="xl"></ma-create-button>'),
             nga.field('calendar_ids', 'reference_many')
                 .targetEntity(calendar)
                 .targetField(nga.field('name')),
@@ -468,6 +481,33 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
         ])
         .perPage(10);
 
+
+    var two_weeks = new Date();
+    two_weeks = two_weeks.setDate(two_weeks.getDate()+7);
+    two_weeks = new Date(two_weeks);
+
+    userAttendances.listView()
+        .fields([
+            nga.field('user_id')
+        ])
+        .permanentFilters({
+                'from_time':new Date(),
+                'to_time': two_weeks,
+                'user_id': USERID
+            })
+        .filters([
+            nga.field('from_time', 'datetime')
+                .pinned(true)
+                .cssClasses("pull-left")
+                .label('From')
+                .attributes({'placeholder': 'Filter by date'}),
+            nga.field('to_time', 'datetime')
+                .pinned(true)
+                .cssClasses("pull-left")
+                .label('To')
+                .attributes({'placeholder': 'Filter by date'})
+        ])
+        ;
 
     // attach the admin application to the DOM and execute it
     nga.configure(admin);
