@@ -1,4 +1,4 @@
-var myApp = angular.module('myApp', ['ng-admin']);
+var myApp = angular.module('myApp', ['ng-admin', 'uiGmapgoogle-maps']);
 
 /**
  * CONFIG
@@ -10,6 +10,11 @@ var TOKEN = '';
 var USERID = ''; // Required for getEventIconUrl
 var SERVICEID = '';
 
+var URL = 'https://beta.calendar42.com/app/django/api/v2';
+var ACCOUNTSURL = 'https://beta.calendar42.com/accounts';          // Required for getEventIconUrl
+var TOKEN = '';
+var USERID = '';                    // Required for getEventIconUrl
+// var SERVICEID = '';
 
 /**
  * NG-ADMIN CUSTOMIZATIONS
@@ -75,14 +80,31 @@ myApp.config(['RestangularProvider', function (RestangularProvider) {
             delete params._sortDir;
         }
         if (operation == 'patch') {
+            // don't send along the id again in patch
+            delete element.id;
             // C42 expects partial payloads in patch
             // C42 doesn't allow all fields to be null in patch, they should then not be send
-            delete element.id;
             var nonNullFields = ['all_day','start', 'end','length','end_timezone','start_timezone','time_buffer','rsvp_status'];
             for (var i = nonNullFields.length - 1; i >= 0; i--) {
                 if (element[nonNullFields[i]] === null) {
                     delete element[nonNullFields[i]];
                 }
+            }
+        }
+        if (operation == 'post' || operation == 'patch') {
+            // In order to keep data consistent, we only allow to post or patch the location id
+            // Not any other fields of the location, so we overwrite everything except the id
+            if (element.start_location) {
+                if (element.start_location.id) {
+                    element.start_location = {
+                        'id': element.start_location.id
+                    };
+                } else {
+                    delete element.start_location;
+                }
+            }
+            if (element.calendar_ids === null) {
+                element.calendar_ids = [];
             }
         }
         // params.service_ids= '['+SERVICEID+']';
@@ -91,17 +113,6 @@ myApp.config(['RestangularProvider', function (RestangularProvider) {
             C42 adds expects filers directly in the params and not inside an object in a `_filter` param
         */
         if (params._filters) {
-            /*
-                as search is on a different end point, this is not working yet
-                addFullRequestInterceptor doesn't allow to write over the url
-                https://github.com/mgonto/restangular/issues/1083
-            */
-            // if (params._filters.q) {
-            //     console.warn(what, url);
-            //     url = "https://beta.calendar42.com/app/django/api/v2/events/";
-            //     return {url: url, params: { q: params._filters.q}};
-            // }
-
             /*
                 C42 uses array filters, that expect multiple values in an array
                 The fields of ng-admin don't really support this out of the box, so in the view layer we
@@ -131,12 +142,90 @@ myApp.config(['RestangularProvider', function (RestangularProvider) {
         if (operation == "getList") {
             response.totalCount = data.meta_data.count;
             data = data.data;
-        } else if (operation == "get") {
+        } else {
             data = data.data[0];
         }
         return data;
     });
 }]);
+
+
+/* 
+    Google maps
+*/
+myApp.config(function (uiGmapGoogleMapApiProvider) {
+    uiGmapGoogleMapApiProvider.configure({
+        key: 'AIzaSyBrYbrn5tzt7F_rAML2jGVPgV4q2uz0oxg',
+        v: '3',
+        libraries: 'visualization'
+    });});
+
+myApp.directive('geocode', ['$location', function ($location) {
+return {
+    restrict: 'E',
+    scope: {
+        lat: '=lat',
+        lon: '=lon',
+    },
+    link: function($scope, uiGmapIsReady) {
+        var iLat, iLong;
+        if ($scope.lat && $scope.lon)    {
+            iLat  = parseFloat($scope.lat);
+            iLong = parseFloat($scope.lon);
+        } else {
+            iLat  = 19.090555;
+            iLong = 72.888684;
+            // $scope.geocode = new Object;
+            // $scope.geocode.__type = "GeoPoint";
+            // $scope.geocode.latitude = iLat;
+            // $scope.geocode.longitude = iLong;
+        }
+
+        var maps = { center: { latitude: iLat, longitude: iLong }, zoom: 12 };
+
+        $scope.map = maps;
+        $scope.options = {scrollwheel: false};
+
+        $scope.marker = {
+            id: 0,
+            coords: {
+                latitude: iLat,
+                longitude: iLong
+            },
+            options: { draggable: true },
+
+            events: {
+                dragend: function (marker, eventName, args) {
+                    $scope.geocode.latitude  = marker.getPosition().lat();
+                    $scope.geocode.longitude = marker.getPosition().lng();
+                    var latlng = {lat: parseFloat($scope.geocode.latitude), lng: parseFloat($scope.geocode.longitude)};
+
+
+                    $scope.marker.options = {
+                        draggable: true,
+                        labelContent: $scope.address,
+                        labelAnchor: "100 0",
+                        labelClass: "marker-labels"
+                    };
+
+                }
+            }
+        };
+
+    },
+    template: 
+    `
+    <div class="row list-view">
+        <div class="col-lg-12">
+            <ui-gmap-google-map center="map.center" zoom="map.zoom" draggable="true" options="options" pan=true  refresh="true">
+                <ui-gmap-marker coords="marker.coords" options="marker.options" events="marker.events" idkey="marker.id">
+                </ui-gmap-marker>
+            </ui-gmap-google-map>
+        </div>
+    </div>
+    `
+};}]);
+
 
 
 
@@ -169,6 +258,9 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
     //     return urlRewite(entityName, identifierValue, "public");
     // });
     var calendar = nga.entity('calendars').url(function(entityName, viewType, identifierValue, identifierName) {
+        return urlRewite(entityName, identifierValue);
+    });
+    var location = nga.entity('locations').url(function(entityName, viewType, identifierValue, identifierName) {
         return urlRewite(entityName, identifierValue);
     });
     var event = nga.entity('events').url(function(entityName, viewType, identifierValue, identifierName) {
@@ -390,10 +482,70 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
     ]);
 
     event.creationView()
-        .title('Create new Event')
+        .title('Create new Task or Event')
         .fields([
-            // Doesn't work for bearer token
+            nga.field('title'),
+            nga.field('calendar_ids', 'reference_many')
+                .targetEntity(calendar)
+                .label('Calendars')
+                .targetField(nga.field('name')),
+            nga.field('event_type', 'choice')
+                .defaultValue('todo')
+                .choices([
+                    { label: 'task', value: 'todo' },
+                    { label: 'Normal', value: 'normal' },
+                    // { label: 'Time block', value: 'time_block' },
+                    // { label: 'Arrive By Trip', value: 'arrive_by' },
+                    // { label: 'Depart From Trip', value: 'depart_from' },
+                    // { label: 'Route', value: 'route' }
+                ]),
+            nga.field('description', 'wysiwyg'),
+            nga.field('start', 'datetime'),
+            nga.field('end', 'datetime'),
+            nga.field('due', 'datetime'),
+            nga.field('', 'template')
+                .label('')
+                .template(`
+                    <h3>Location</h3>
+                `),
+            nga.field('start_location.id', 'reference')
+                .label('')
+                .targetEntity(location)
+                .targetField(nga.field('text'))
+                .remoteComplete(true, {
+                    refreshDelay: 300,
+                    // searchQuery: search =>  { return '[like]=%' + search + '%' }
+                    searchQuery: function (search) {
+                        return { search_pattern: search };
+                    }
+                }),
+            nga.field('start_location.geo', 'template')
+                // somehow let this directive except the start location
+                .label('')
+                .editable(false)
+                .template(`
+                    <geocode lat="entry.values[\'start_location.geo.latitude\']" lon="entry.values[\'start_location.geo.longitude\']"></geocode>
+                    <div class="help-block">{{ entry.values[\'start_location.address\'] }}, {{ entry.values[\'start_location.postcode\'] }}, {{ entry.values[\'start_location.city\'] }}</div>
+                    `),
+            
+            nga.field('', 'template')
+                .label('')
+                .template(`
+                    <h6>{{ entry.values[\'state\'] }} - {{ entry.values[\'id\'] }}</h6>
+                `),
+        ]);
+    // use the same fields for the editionView as for the creationView
+    event.editionView()
+        .title('{{ entry.values.title }}')
+        .fields(event.creationView().fields().concat([
+            // NOTE: Event subscriptions Don't work for bearer token
+            nga.field('', 'template')
+                .label('')
+                .template(`
+                    <h3>Subscribers</h3>
+                `),
             nga.field('eventSubscriptions', 'referenced_list')
+                .label('')
                 .targetEntity(eventSubscription)
                 .targetReferenceField('event_id')
                 .sortField('sync_token')
@@ -417,26 +569,13 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
             ]),
             nga.field('', 'template')
                 .label('')
-                .template('<ma-create-button ng-show="entry.values.id" label="Invite" entity-name="event-subscriptions" default-values="{ event_id: entry.values.id }" size="xl"></ma-create-button>'),
-            nga.field('calendar_ids', 'reference_many')
-                .targetEntity(calendar)
-                .targetField(nga.field('name')),
-            nga.field('title'),
-            nga.field('state'),
-            nga.field('event_type'),
-            nga.field('description', 'wysiwyg'),
-            nga.field('start', 'datetime'),
-            nga.field('end', 'datetime'),
-            nga.field('due', 'datetime'),
-            nga.field('start_location.text').label('Text'),
-            nga.field('start_location.address').label('Address'),
-            nga.field('start_location.city').label('City'),
-            nga.field('start_location.zipcode').label('Zipcode'),
-        ]);
-    // use the same fields for the editionView as for the creationView
-    event.editionView()
-        .title('Edit: {{ entry.values.title }}')
-        .fields(event.creationView().fields());
+                .template(`
+                    <div class="pull-right">
+                        <ma-create-button ng-show="entry.values.id" label="Invite others" entity-name="event-subscriptions" default-values="{ event_id: entry.values.id }" size="xl"></ma-create-button>
+                        <a class="btn btn-primary" target="_blank" href="{{ entry.values.source_url }}">Pick Timeblock</a>
+                    </div>
+                `),
+            ]));
 
 
     /*

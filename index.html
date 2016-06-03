@@ -4,10 +4,25 @@
         <meta charset="utf-8">
         <title>My First Admin</title>
         <link rel="stylesheet" href="node_modules/ng-admin/build/ng-admin.min.css">
+        <style>
+        .angular-google-map-container {
+            height:250px;
+            clear:both;
+        }
+        </style>
     </head>
     <body ng-app="myApp">
         <div ui-view></div>
+
+        <script src='node_modules/lodash/lodash.min.js'></script>
         <script src="node_modules/ng-admin/build/ng-admin.min.js" type="text/javascript"></script>
+        
+        
+        <script src='node_modules/angular-simple-logger/dist/angular-simple-logger.min.js'></script>
+        <script src='node_modules/angular-google-maps/dist/angular-google-maps.min.js'></script>
+
+        
+        
         <script src="admin.js" type="text/javascript"></script>
     </body>
 </html>
