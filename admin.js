@@ -172,13 +172,6 @@ return {
         if ($scope.lat && $scope.lon)    {
             iLat  = parseFloat($scope.lat);
             iLong = parseFloat($scope.lon);
-        } else {
-            iLat  = 19.090555;
-            iLong = 72.888684;
-            // $scope.geocode = new Object;
-            // $scope.geocode.__type = "GeoPoint";
-            // $scope.geocode.latitude = iLat;
-            // $scope.geocode.longitude = iLong;
         }
 
         var maps = { center: { latitude: iLat, longitude: iLong }, zoom: 12 };
@@ -227,7 +220,14 @@ return {
 };}]);
 
 
-
+var eventTypeChoices = [
+    { label: 'Normal', value: 'normal' },
+    { label: 'task', value: 'todo' },
+    { label: 'Time block', value: 'time_block' },
+    { label: 'Trip (Arrive By)', value: 'arrive_by' },
+    { label: 'Trip (Depart From)', value: 'depart_from' },
+    { label: 'Route', value: 'route' }
+];
 
 
 /*
@@ -254,9 +254,9 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
         ENTITIES
 
     */
-    // var service = nga.entity('services').url(function(entityName, viewType, identifierValue, identifierName) {
-    //     return urlRewite(entityName, identifierValue, "public");
-    // });
+    var service = nga.entity('services').url(function(entityName, viewType, identifierValue, identifierName) {
+        return urlRewite(entityName, identifierValue, "public");
+    });
     var calendar = nga.entity('calendars').url(function(entityName, viewType, identifierValue, identifierName) {
         return urlRewite(entityName, identifierValue);
     });
@@ -282,7 +282,7 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
     eventSearchResult.identifier(nga.field('object.id'));
     eventSubscription.updateMethod(updateMethod);
     // add entitities
-    // admin.addEntity(service);
+    admin.addEntity(service);
     admin.addEntity(calendar);
     admin.addEntity(event);
     admin.addEntity(eventSearchResult);
@@ -296,7 +296,7 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
     */
     admin.menu(nga.menu()
         .addChild(nga.menu(event)
-            .title('Tasks, Time Blocks & Events')
+            .title('Tasks and Events')
             .icon('<span class="fa fa-clock-o fa-fw"></span>')
             .active(function () {return true;})
             .addChild(nga.menu()
@@ -304,8 +304,9 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
                 .link('/events/list') // ?search=%7B%22from_time%22:%222015-11-30T23:00:00.000Z%22,%22to_time%22:%222015-12-24T23:00:00.000Z%22%7D&sortField=events_ListView.start&sortDir=DESC
             )
             .addChild(nga.menu()
-                .title('Smart Search')
+                .title('Search')
                 .icon('<span class="fa fa-search fa-fw"></span>')
+                // Q needs to be provided, quick fix
                 .link('event_search_results/list?search={"q":"'+DEFAULTSEARCHTERM+'"}') // ?search=%7B%22from_time%22:%222015-11-30T23:00:00.000Z%22,%22to_time%22:%222015-12-24T23:00:00.000Z%22%7D&sortField=events_ListView.start&sortDir=DESC
             )
         )
@@ -326,11 +327,24 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
         .addCollection(nga.collection(event)
             .name('events')
             .title('Upcoming Tasks')
-            .perPage(10) // limit the panel to the 5 latest posts
+            .perPage(10)
             .fields([
                 C42EventAvatarField,
-                nga.field('title').isDetailLink(true),
-                nga.field('due', 'datetime'),
+                nga.field('title')
+                    .isDetailLink(true)
+                    .template(`
+                        <a href="/#/events/edit/{{ entry.values.id }}"><b>{{ entry.values.title }}</b></a>
+                        <div><b>Due: {{ entry.values.due | date:'d MMM HH:mm' }}</b></div>
+                    `),
+                nga.field('calendar_ids', 'reference_many')
+                    .label('Calendars')
+                    .targetEntity(calendar)
+                    .targetField(nga.field('name')),
+                nga.field('', 'template')
+                    .label('')
+                    .template(`
+                        <a ng-if="entry.values.source_url" class="btn btn-primary btn-xs" target="_blank" href="{{ entry.values.source_url }}">Timeblock Picker <i class="glyphicon glyphicon-link"></a>
+                    `),
             ])
             .permanentFilters({
                 'include_removed_events':false,
@@ -340,6 +354,37 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
             .sortDir('ASC')
         )
     );
+    /*
+
+        SERVICE
+
+    */
+
+    service.showView()
+        .title(`
+            <img src="{{entry.values.icon}}" style="height:80px">
+            <span style="color:{{entry.values.color}}">{{entry.values.name}}</span>
+            `)
+        .actions([])
+        .fields([
+            nga.field('name', 'wysiwyg'),
+            nga.field('description', 'wysiwyg'),
+            nga.field('email'),
+            nga.field('language'),
+            nga.field('', 'template')
+                .label('')
+                .template(`
+                    <h3>User Interface Configuration</h3>
+                `),
+            nga.field('color')
+                .template(`
+                    <span style="color:{{entry.values.color}}">{{entry.values.color}}</span>
+                `),
+            nga.field('contact_text'),
+            nga.field('timeslot_intro'),
+            nga.field('visit_planning_ui_texts', 'json')
+                .label('Timeslot picker')
+        ]);
 
     /*
 
@@ -352,10 +397,10 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
             .template('<div style="background-color:{{entry.values.color}};height:16px;width:16px;"></div>'),
         nga.field('name')
             .isDetailLink(true),
-        nga.field('service_id', 'template')
-            .label('Service Related')
-            .template('<span ng-show="entry.values.service_id">Service related</span>')
-            .isDetailLink(false),
+        nga.field('service_id', 'reference')
+            .label('Service')
+            .targetEntity(service)
+            .targetField(nga.field('name'), 'wysiwyg'),
         nga.field('', 'template')
                 .label('')
                 .template('<span class="pull-right"><ma-filtered-list-button entity-name="events" label="See related events" filter="{ calendar_id: entry.values.id }" size="sm"></ma-filtered-list-button></span>')
@@ -436,20 +481,27 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
     event.listView().fields([
         C42EventAvatarField,
         nga.field('title').isDetailLink(true),
-        nga.field('event_type'),
-        nga.field('sync_token'),
-        nga.field('state'),
-        nga.field('created', 'datetime'),
+        nga.field('event_type', 'choice')
+            .choices(eventTypeChoices),
+        // nga.field('sync_token'),
+        // nga.field('state'),
         nga.field('due', 'datetime'),
         nga.field('start', 'datetime'),
         nga.field('end', 'datetime'),
         nga.field('calendar_ids', 'reference_many')
+            .label('Calendars')
             .targetEntity(calendar)
             .targetField(nga.field('name')),
         nga.field('', 'template')
                 .label('')
-                .template('<span class="pull-right"><ma-filtered-list-button ng-if="entry.values.event_type == \'todo\'" entity-name="events" label="Time Blocks within 15KM" filter="{ event_type: \'time_block\', geo_circle: [entry.values[\'start_location.geo.latitude\'], entry.values[\'start_location.geo.longitude\'], \'15000\' ]}" size="sm"></ma-filtered-list-button></span>')
+                .template(`
+                    <a ng-if="entry.values.source_url" class="btn btn-primary btn-xs" target="_blank" href="{{ entry.values.source_url }}">Timeblock Picker <i class="glyphicon glyphicon-link"></a>
+                `),
+        // nga.field('', 'template')
+        //         .label('')
+        //         .template('<span class="pull-right"><ma-filtered-list-button ng-if="entry.values.event_type == \'todo\'" entity-name="events" label="Time Blocks within 15KM" filter="{ event_type: \'time_block\', geo_circle: [entry.values[\'start_location.geo.latitude\'], entry.values[\'start_location.geo.longitude\'], \'15000\' ]}" size="sm"></ma-filtered-list-button></span>')
     ])
+    .title('Browse Tasks and Events')
     .permanentFilters({'include_removed_events':false})
     .perPage(10)
     .filters([
@@ -461,14 +513,7 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
             .attributes({'placeholder': '52.009507,4.360515,1000'}),
         nga.field('event_type', 'choice')
             .pinned(true)
-            .choices([
-                { label: 'Normal', value: 'normal' },
-                { label: 'task', value: 'todo' },
-                { label: 'Time block', value: 'time_block' },
-                { label: 'Arrive By Trip', value: 'arrive_by' },
-                { label: 'Depart From Trip', value: 'depart_from' },
-                { label: 'Route', value: 'route' }
-            ]),
+            .choices(eventTypeChoices),
         nga.field('from_time', 'datetime')
             .pinned(true)
             .cssClasses("pull-left")
@@ -494,15 +539,16 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
                 .choices([
                     { label: 'task', value: 'todo' },
                     { label: 'Normal', value: 'normal' },
-                    // { label: 'Time block', value: 'time_block' },
-                    // { label: 'Arrive By Trip', value: 'arrive_by' },
-                    // { label: 'Depart From Trip', value: 'depart_from' },
-                    // { label: 'Route', value: 'route' }
                 ]),
             nga.field('description', 'wysiwyg'),
             nga.field('start', 'datetime'),
             nga.field('end', 'datetime'),
             nga.field('due', 'datetime'),
+            nga.field('', 'template')
+                .label('')
+                .template(`
+                    <a ng-if="entry.values.source_url" class="btn btn-primary" target="_blank" href="{{ entry.values.source_url }}">Timeblock Picker</a>
+                `),
             nga.field('', 'template')
                 .label('')
                 .template(`
@@ -528,21 +574,26 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
                     <div class="help-block">{{ entry.values[\'start_location.address\'] }}, {{ entry.values[\'start_location.postcode\'] }}, {{ entry.values[\'start_location.city\'] }}</div>
                     `),
             
-            nga.field('', 'template')
-                .label('')
-                .template(`
-                    <h6>{{ entry.values[\'state\'] }} - {{ entry.values[\'id\'] }}</h6>
-                `),
+            // nga.field('', 'template')
+            //     .label('')
+            //     .template(`
+            //         <h6>{{ entry.values[\'state\'] }} - {{ entry.values[\'id\'] }}</h6>
+            //     `),
         ]);
     // use the same fields for the editionView as for the creationView
     event.editionView()
         .title('{{ entry.values.title }}')
+        .actions(['export', 'list', 'delete'])
+        // Extend the fields of the creation view
         .fields(event.creationView().fields().concat([
             // NOTE: Event subscriptions Don't work for bearer token
             nga.field('', 'template')
                 .label('')
                 .template(`
-                    <h3>Subscribers</h3>
+                    <div class="pull-right" style="margin-top:10px;">
+                        <ma-create-button ng-show="entry.values.id" label="Invite others" entity-name="event-subscriptions" default-values="{ event_id: entry.values.id }" size="xl"></ma-create-button>
+                    </div>
+                    <h3>Attendees</h3>
                 `),
             nga.field('eventSubscriptions', 'referenced_list')
                 .label('')
@@ -558,23 +609,17 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
                 nga.field('subscriber.last_name', 'template') // use last_name for sorting
                     .label('Name')
                     .isDetailLink(true)
-                    .template("{{entry.values['subscriber.first_name']}} {{entry.values['subscriber.last_name']}}"),
+                    .template(`
+                        <div><b>{{entry.values['subscriber.first_name']}} {{entry.values['subscriber.last_name']}}</b></div>
+                        `),
                 nga.field('is_invitation', 'boolean')
                     .label('Invited'),
                 nga.field('rsvp_status')
                     .label('RSVP'),
-                nga.field('', 'template')
-                    .label('')
-                    .template('<span class="pull-right"><ma-filtered-list-button entity-name="user-attendances" label="Show availability" filter="{ user_id: entry.values[\'subscriber.id\'] }" size="xs"></ma-filtered-list-button></span>')
+                // nga.field('', 'template')
+                //     .label('')
+                //     .template('<span class="pull-right"><ma-filtered-list-button entity-name="user-attendances" label="Show availability" filter="{ user_id: entry.values[\'subscriber.id\'] }" size="xs"></ma-filtered-list-button></span>')
             ]),
-            nga.field('', 'template')
-                .label('')
-                .template(`
-                    <div class="pull-right">
-                        <ma-create-button ng-show="entry.values.id" label="Invite others" entity-name="event-subscriptions" default-values="{ event_id: entry.values.id }" size="xl"></ma-create-button>
-                        <a class="btn btn-primary" target="_blank" href="{{ entry.values.source_url }}">Pick Timeblock</a>
-                    </div>
-                `),
             ]));
 
 
@@ -585,6 +630,7 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
      */    
 
     eventSearchResult.listView()
+        .title('Search Tasks and Events')
         .fields([
             nga.field('')
                 .label('Title')
