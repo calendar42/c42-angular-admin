@@ -164,46 +164,25 @@ myApp.directive('geocode', ['$location', function ($location) {
 return {
     restrict: 'E',
     scope: {
-        lat: '=lat',
-        lon: '=lon',
+        event: '=event',
+        events: '=events'
     },
     link: function($scope, uiGmapIsReady) {
-        var iLat, iLong;
-        if ($scope.lat && $scope.lon)    {
-            iLat  = parseFloat($scope.lat);
-            iLong = parseFloat($scope.lon);
-        }
+        var events = $scope.event ? [$scope.event] : $scope.events;
 
-        var maps = { center: { latitude: iLat, longitude: iLong }, zoom: 12 };
-
-        $scope.map = maps;
-        $scope.options = {scrollwheel: false};
-
-        $scope.marker = {
-            id: 0,
-            coords: {
-                latitude: iLat,
-                longitude: iLong
-            },
-            options: { draggable: true },
-
-            events: {
-                dragend: function (marker, eventName, args) {
-                    $scope.geocode.latitude  = marker.getPosition().lat();
-                    $scope.geocode.longitude = marker.getPosition().lng();
-                    var latlng = {lat: parseFloat($scope.geocode.latitude), lng: parseFloat($scope.geocode.longitude)};
-
-
-                    $scope.marker.options = {
-                        draggable: true,
-                        labelContent: $scope.address,
-                        labelAnchor: "100 0",
-                        labelClass: "marker-labels"
-                    };
-
-                }
+        $scope.markers = events.map(function(event) {
+            return {
+                id: event.identifierValue,
+                coords: {
+                    latitude: parseFloat(event.values['start_location.geo.latitude']),
+                    longitude: parseFloat(event.values['start_location.geo.longitude'])
+                },
+                options: { draggable: false }
             }
-        };
+        })
+
+        $scope.map = { center: $scope.markers[0].coords, zoom: 12 };
+        $scope.options = {scrollwheel: false};
 
     },
     template: 
@@ -211,7 +190,7 @@ return {
     <div class="row list-view">
         <div class="col-lg-12">
             <ui-gmap-google-map center="map.center" zoom="map.zoom" draggable="true" options="options" pan=true  refresh="true">
-                <ui-gmap-marker coords="marker.coords" options="marker.options" events="marker.events" idkey="marker.id">
+                <ui-gmap-marker ng-repeat="marker in markers track by marker.id" coords="marker.coords" options="marker.options" idkey="marker.id">
                 </ui-gmap-marker>
             </ui-gmap-google-map>
         </div>
@@ -299,6 +278,11 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
             .title('Tasks and Events')
             .icon('<span class="fa fa-clock-o fa-fw"></span>')
             .active(function () {return true;})
+            .addChild(nga.menu()
+                .title('New')
+                .link('/events/create')
+                .icon('<span class="fa fa-plus fa-fw"></span>')
+            )
             .addChild(nga.menu()
                 .title('Browse')
                 .link('/events/list') // ?search=%7B%22from_time%22:%222015-11-30T23:00:00.000Z%22,%22to_time%22:%222015-12-24T23:00:00.000Z%22%7D&sortField=events_ListView.start&sortDir=DESC
@@ -417,15 +401,38 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
         nga.field('service_id'),
     ]);
 
-    calendar.creationView().fields([
-        nga.field('name'),
-        nga.field('color'),
-        nga.field('category'),
-        nga.field('service_id'),
-        nga.field('description', 'wysiwyg'),
-        nga.field('auto_attendance'),  // Why required?
+    calendar.creationView()
+        .fields([
+            nga.field('name'),
+            nga.field('color'),
+            nga.field('category'),
+            nga.field('service_id'),
+            nga.field('description', 'wysiwyg'),
+            nga.field('auto_attendance'),  // Why required?
+
     ]);
-    calendar.editionView().fields(calendar.creationView().fields());
+    calendar.editionView()
+        .prepare(['Restangular', 'datastore', 'entry', 'view', function(Restangular, datastore, entry, view) {
+            entry.map = {center: {latitude: 51.219053, longitude: 4.404418 }, zoom: 14 };
+        }])
+        .title('{{ entry.values.name }}')
+        .fields(calendar.creationView().fields().concat([
+            nga.field('events', 'referenced_list')
+                    .template(`
+                        <div ng-repeat="entry in datastore._entries.events_3_list track by entry.identifierValue" ng-class="getEntryCssClasses(entry)">
+                            {{ entry.values.title }}
+                            {{ entry.values[\'start_location.geo.latitude\' ]}}
+                            {{ event.values[\'start_location.city\'] }}
+                        </div>
+                        <geocode events="datastore._entries.events_3_list"></geocode>
+                        `)
+                    .targetEntity(event)
+                    .targetReferenceField('calendar_id')
+                    .targetFields([
+                        nga.field('title')
+                            .label(''),
+                    ])
+                ]));
 
 
     /* 
@@ -534,6 +541,11 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
     event.creationView()
         .title('Create new Task or Event')
         .fields([
+            nga.field('', 'template')
+                .label('')
+                .template(`
+                    <a ng-if="entry.values.source_url" class="btn btn-primary pull-right" target="_blank" href="{{ entry.values.source_url }}">Timeblock Picker</a>
+                `),
             nga.field('title'),
             nga.field('calendar_ids', 'reference_many')
                 .targetEntity(calendar)
@@ -546,11 +558,6 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
             nga.field('start', 'datetime'),
             nga.field('end', 'datetime'),
             nga.field('due', 'datetime'),
-            nga.field('', 'template')
-                .label('')
-                .template(`
-                    <a ng-if="entry.values.source_url" class="btn btn-primary" target="_blank" href="{{ entry.values.source_url }}">Timeblock Picker</a>
-                `),
             nga.field('', 'template')
                 .label('')
                 .template(`
@@ -567,14 +574,6 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
                         return { search_pattern: search };
                     }
                 }),
-            nga.field('start_location.geo', 'template')
-                // somehow let this directive except the start location
-                .label('')
-                .editable(false)
-                .template(`
-                    <geocode lat="entry.values[\'start_location.geo.latitude\']" lon="entry.values[\'start_location.geo.longitude\']"></geocode>
-                    <div class="help-block">{{ entry.values[\'start_location.address\'] }}, {{ entry.values[\'start_location.postcode\'] }}, {{ entry.values[\'start_location.city\'] }}</div>
-                    `),
             
             // nga.field('', 'template')
             //     .label('')
@@ -588,6 +587,14 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
         .actions(['export', 'list', 'delete'])
         // Extend the fields of the creation view
         .fields(event.creationView().fields().concat([
+            nga.field('start_location.geo', 'template')
+                // somehow let this directive except the start location
+                .label('')
+                .editable(false)
+                .template(`
+                    <geocode event="entry"></geocode>
+                    <div class="help-block">{{ entry.values[\'start_location.address\'] }}, {{ entry.values[\'start_location.postcode\'] }}, {{ entry.values[\'start_location.city\'] }}</div>
+                    `),
             // NOTE: Event subscriptions Don't work for bearer token
             nga.field('', 'template')
                 .label('')
