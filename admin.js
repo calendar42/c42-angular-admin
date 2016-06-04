@@ -221,8 +221,8 @@ return {
 
 
 var eventTypeChoices = [
-    { label: 'Normal', value: 'normal' },
     { label: 'task', value: 'todo' },
+    { label: 'Normal', value: 'normal' },
     { label: 'Time block', value: 'time_block' },
     { label: 'Trip (Arrive By)', value: 'arrive_by' },
     { label: 'Trip (Depart From)', value: 'depart_from' },
@@ -302,6 +302,11 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
             .addChild(nga.menu()
                 .title('Browse')
                 .link('/events/list') // ?search=%7B%22from_time%22:%222015-11-30T23:00:00.000Z%22,%22to_time%22:%222015-12-24T23:00:00.000Z%22%7D&sortField=events_ListView.start&sortDir=DESC
+            )
+            .addChild(nga.menu()
+                .title('Tasks due next')
+                .icon('<span class="fa fa-warning fa-fw"></span>')
+                .link('events/list?search=%7B%22event_type%22:%22todo%22%7D&sortField=events_ListView.due&sortDir=ASC')
             )
             .addChild(nga.menu()
                 .title('Search')
@@ -506,6 +511,8 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
     .perPage(10)
     .filters([
         nga.field('calendar_id', 'reference')
+                .pinned(true)
+                .label('Calendar')
                 .targetEntity(calendar)
                 .targetField(nga.field('name')),
         nga.field('service_id'),
@@ -515,12 +522,10 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
             .pinned(true)
             .choices(eventTypeChoices),
         nga.field('from_time', 'datetime')
-            .pinned(true)
             .cssClasses("pull-left")
             .label('From')
             .attributes({'placeholder': 'Filter by date'}),
         nga.field('to_time', 'datetime')
-            .pinned(true)
             .cssClasses("pull-left")
             .label('To')
             .attributes({'placeholder': 'Filter by date'})
@@ -536,10 +541,7 @@ myApp.config(['NgAdminConfigurationProvider', function (nga) {
                 .targetField(nga.field('name')),
             nga.field('event_type', 'choice')
                 .defaultValue('todo')
-                .choices([
-                    { label: 'task', value: 'todo' },
-                    { label: 'Normal', value: 'normal' },
-                ]),
+                .choices(eventTypeChoices),
             nga.field('description', 'wysiwyg'),
             nga.field('start', 'datetime'),
             nga.field('end', 'datetime'),
